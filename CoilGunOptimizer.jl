@@ -99,7 +99,7 @@ function ob!(g, x)
     return f
 end
 
-function optimize_coil_gun
+function optimize_coil_gun()
     x0 = [0.0]  # starting point
     lx = [0.0]  # lower bounds on x
     ux = [2.0]  # upper bounds on x
