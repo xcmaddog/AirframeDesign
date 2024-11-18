@@ -1,34 +1,15 @@
-#binary search for index of lowest number exceeding some position
-function find_from_sol(sol, target) 
-    start = 1 
-    fin = length(sol) 
-    while(start <= fin)
-        mid = (start + fin) ÷ 2 
-        if (sol[mid][1][2] <= target)
-            start = mid + 1 
-        else
-            fin = mid - 1
-        end
-    end
-    return start;
-end
+using SNOW
+using OrdinaryDiffEq
+using Plots
 
-#binary search for index of lowest number exceeding some position
-function find_from_loc(loc, target)
-    start = 1 
-    fin = length(loc) 
-    while(start <= fin)
-        mid = (start + fin) ÷ 2 
-        if (loc[mid] <= target)
-            start = mid + 1 
-        else
-            fin = mid - 1
-        end
-    end
-    return start;
-end
+"""
+voltage(max_v, cutoff_time, curr_time)
+This function mimics an electric switch, providing max_v voltage until cutoff_time.
 
-#returns the voltage as if it was on until it was turned off at a variable time
+max_v is the voltage returned if curr_time is less than the cutoff_time (0 is returned otherwise)
+cutoff_time is the instant when the switch is turned off
+curr_time is the time at which you want to evaluate the voltage
+"""
 function voltage(max_v, cutoff_time, curr_time)
     if curr_time >= cutoff_time
         return 0.0
@@ -38,7 +19,11 @@ function voltage(max_v, cutoff_time, curr_time)
 end
 
 #ODE for EOM of a single stage coil gun
+"""
+This function has the EOM for a simple, single-stage coil gun. It is used in the ODE solver
+"""
 function single_stage(du, u, p, t)
+    #pull the variables out of the vector p, and give them more legible names
     L_a = p[1]
     R = p[2]
     K_e = p[3]#assuming K_e and K_f are the same
@@ -47,50 +32,51 @@ function single_stage(du, u, p, t)
     g = 9.81
     max_v = p[6]
     cutoff_time = p[7]
+    #calculate the voltage using the voltage function
     V_a = voltage(max_v, cutoff_time, t)
 
+    #this is the juicy part... the EOM (du is the derivative and u is the state vector)
     du[1] = -(R/L_a)*u[1] - (K_e/L_a)*u[3] + (V_a/L_a)
     du[2] = u[3]
     du[3] = (K_e/m)*u[1] + mu_k*g
 end
 
-p = [1.0, 1.5, 0.1, 0.01, 0.03, 1500.0, 0.0]
-t = (0.0, 2.0)
-u0 = [0.0, -0.1, 0.0]
+"""
+function ob!(g, x)
+This function is used in the optimizer. 
+The vector g is a vector of constraint values and x is a vector of variables the optimizer can vary to find the optimum
 
-prob = ODEProblem(single_stage, u0, t, p)
-sol = solve(prob)
-plot(sol)
-
+As it is currently written, it restricts the cutoff time to be within 0 and 2 seconds, and optimizes the cutoff time
+    to find the greatest velocity at some position (pos)
+"""
 #objective function to optimize coil gun
 #let's vary: cutoff_time
 function ob!(g, x)
     #set up variables
-    p = [1.0, 1.5, 0.1, 0.01, 0.03, 1500.0, x[1]] #important variables
-    t = (0.0, 2.0) #time
-    u0 = [0.0, -0.1, 0.0] #initial conditions
+    L_a = 1.0
+    R = 1.5
+    K_e = 0.1
+    m = 0.01
+    mu_k = 0.03
+    max_v = 1500
+    cutoff_time = x[1]
+    p = [L_a, R, K_e, m, mu_k, max_v, cutoff_time] #put the variables into the vector
+    t = (0.0, 2.0) #time 
+    u0 = [0.0, -0.1, 0.0] #initial conditions [current, position, velocity]
     
-    #simulate
-    prob = ODEProblem(single_stage, u0, t, p) #set up the problem
-    sol = solve(prob) #solve the problem
-    solution = [u for (u) in tuples(sol)] #Extract the data into a format we can use more easily
-        
     #objective (velocity when x = pos)
     pos = 0.1
-    indx = find_from_sol(solution, pos) #find the index of the solution where the position of the bullet is just past the determined pos
-    #make a vector of interpolated values for the position
-
-
-
-    #changing the step size here changes the answer more than I think it should
-    t = range(start = sol.t[indx-1], stop = sol.t[indx], step = 0.001) #make a range of the times from sol that bound our desired pos
     
+    #set up end condition for simulation (end simulation when the mass reaches pos)
+    condition(u,t,integrator) = u[2] - 0.1 # Is zero when u[2] = 0.1
+    affect!(integrator) = terminate!(integrator)
+    cb = ContinuousCallback(condition, affect!)
+    #simulate
+    prob = ODEProblem(single_stage, u0, t, p) #set up the problem
+    sol = solve(prob, callback = cb); #solve the problem
 
-    
-    location = [sol(t)[2] for (t) in t] #make a vector of locations corresponding to t
-    second_indx = find_from_loc(location, pos) #find the index of the time where the location is just greater than pos
-    time = t[second_indx] #get what time it was at that index
-    f = -sol(time)[3] #plug that time into sol and retreive the velocity (in effect, get the velocity of the bullet at pos)
+    # get the velocity when the position is pos
+    f = -sol[length(sol)][3] #this is negative because we are minimizing in the optimizer
 
     #constraints
     g[1] = x[1] #the voltage can't be turned off at a negative value nor one larger than 2s
@@ -99,8 +85,15 @@ function ob!(g, x)
     return f
 end
 
+"""
+optimize_coil_gun()
+This function runs, without any inputs, the optimizer for the single stage coil gun.
+
+To read the results, look for "xstar = _____" This is the solution the optimizer found. (When to turn off the voltage)
+    "fstar = _____" is the value of the objective. (The velocity of the projectile at the end of the barrel)
+"""
 function optimize_coil_gun()
-    x0 = [0.0]  # starting point
+    x0 = [0.02]  # starting point
     lx = [0.0]  # lower bounds on x
     ux = [2.0]  # upper bounds on x
     ng = 1  # number of constraints
@@ -114,3 +107,31 @@ function optimize_coil_gun()
     println("fstar = ", fopt)
     println("info = ", info)
 end
+
+optimize_coil_gun() #this line lets you run the file to get the output
+
+#=
+#set up variables
+L_a = 1.0
+R = 1.5
+K_e = 0.1
+m = 0.01
+mu_k = 0.03
+max_v = 1500
+cutoff_time = 0.021
+p = [L_a, R, K_e, m, mu_k, max_v, cutoff_time] #put the variables into the vector
+t = (0.0, 2.0) #time 
+u0 = [0.0, -0.1, 0.0] #initial conditions [current, position, velocity]
+
+#objective (velocity when x = pos)
+pos = 0.1
+
+#set up end condition for simulation (end simulation when the mass reaches pos)
+condition(u,t,integrator) = u[2] - 0.1 # Is zero when u[2] = 0.1
+affect!(integrator) = terminate!(integrator)
+cb = ContinuousCallback(condition, affect!)
+#simulate
+prob = ODEProblem(single_stage, u0, t, p) #set up the problem
+sol = solve(prob, callback = cb); #solve the problem
+plot(sol)
+=#
