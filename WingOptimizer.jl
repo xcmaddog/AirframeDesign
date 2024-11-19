@@ -95,3 +95,49 @@ function simulation(wing_surface, reference_area, reference_chord)
     return CL, CD
 end
 
+"""
+objective!(g, x)
+"""
+function objective!(g, x)
+    #build the variables
+    surface, reference_area, reference_chord = build_wing(x)
+    #run the simulation
+    CL, CD = simulation(surface, reference_area, reference_chord)
+    #objective
+    rho = 1
+    freestream_velocity = 1
+    f = CD_to_D(CD, reference_area, rho, freestream_velocity)
+    #constraints
+    g[1] = CL_to_L(CL, reference_area, rho, freestream_velocity)
+    #return
+    return f
+end
+
+"""
+optimize_wing(num_of_segments)
+"""
+function optimize_wing(num_of_segments)
+    x0 = 0.1 * ones(Float64, num_of_segments)  # starting point
+    lx = zeros(Float64, num_of_segments)  # lower bounds on x
+    ux = 3.0 * ones(Float64, num_of_segments)  # upper bounds on x
+    ng = 1  # number of constraints
+    lg = [1.7]  # lower bounds on g
+    ug = [Inf64]  # upper bounds on g
+    options = Options(solver=IPOPT())  # choosing IPOPT solver
+
+    xopt, fopt, info = minimize(ob!, x0, ng, lx, ux, lg, ug, options)
+
+    println("xstar = ", xopt)
+    println("fstar = ", fopt)
+    println("info = ", info)
+
+    return xopt
+end
+
+function optimize_and_visualize(num_of_segments)
+    #run the optimization
+    segment_lengths = optimize_wing(num_of_segments)
+    #draw the optimization
+    surface, reference_area, reference_chord = build_wing(segment_lengths)
+
+end
