@@ -1,4 +1,6 @@
 using VortexLattice
+using SNOW
+
 """
 build_grid(lengths)
 This function takes a vector of chord lengths 
@@ -39,7 +41,7 @@ function build_wing(chord_lengths)
     theta = (5*(pi/180)) * ones(Float64, length(chord_lengths)) #twist of each airfoil section
     phi = zeros(Float64, length(chord_lengths)) #dihedral angle of each airfoil section
     ns = length(chord_lengths) - 1 #number of spanwise panels
-    sc = 10 #number of chordwise panels
+    nc = 10 #number of chordwise panels
     #build the wing
     grid, surface = wing_to_surface_panels(xle, yle, zle, chord_lengths, theta, phi, ns, nc)
     #calculate the area and part of the mean aerodynamic chord
@@ -82,7 +84,7 @@ function simulation(wing_surface, reference_area, reference_chord)
     fs = Freestream(Vinf, alpha, beta, Omega)
     # Initialize reference location and symmetric option
     cg = 0.0
-    rref = SVector(cg, 0.0, 0.0) # using StaticArrays for fixed-size vector
+    rref = [cg, 0.0, 0.0] #
     symmetric = true
     # reference parameters (determined by the wing)
     ref = Reference(reference_area, reference_chord, 8, rref, Vinf)
@@ -92,7 +94,9 @@ function simulation(wing_surface, reference_area, reference_chord)
     # retrieve near-field forces
     CF, CM = body_forces(system; frame=Wind())
     CD, CY, CL = CF # CD = drag, CY = side forces, CL = lift
-    return CL, CD
+    #get the properties
+    properties = get_surface_properties(system)
+    return CL, CD, properties
 end
 
 """
@@ -102,7 +106,7 @@ function objective!(g, x)
     #build the variables
     surface, reference_area, reference_chord = build_wing(x)
     #run the simulation
-    CL, CD = simulation(surface, reference_area, reference_chord)
+    CL, CD, properties = simulation(surface, reference_area, reference_chord)
     #objective
     rho = 1
     freestream_velocity = 1
@@ -125,7 +129,7 @@ function optimize_wing(num_of_segments)
     ug = [Inf64]  # upper bounds on g
     options = Options(solver=IPOPT())  # choosing IPOPT solver
 
-    xopt, fopt, info = minimize(ob!, x0, ng, lx, ux, lg, ug, options)
+    xopt, fopt, info = minimize(objective!, x0, ng, lx, ux, lg, ug, options)
 
     println("xstar = ", xopt)
     println("fstar = ", fopt)
@@ -137,7 +141,12 @@ end
 function optimize_and_visualize(num_of_segments)
     #run the optimization
     segment_lengths = optimize_wing(num_of_segments)
-    #draw the optimization
+    #draw the optimization:
+    #build the variables
     surface, reference_area, reference_chord = build_wing(segment_lengths)
-
+    #run the simulation
+    _, _, properties = simulation(surface, reference_area, reference_chord)
+    write_vtk("optimizedWing", [surface], properties, symmetric = [true])
 end
+
+optimize_and_visualize(4)
