@@ -3,14 +3,16 @@ using OrdinaryDiffEq
 using Plots
 
 #global variables
-barrel_radius = 1 #cm
-wire_radius = 0.06438 / 2 #cm
+const barrel_radius = 1 #cm
+const wire_radius = 0.06438 / 2 #cm
 unit_resistance = 16.14 #milliohms/ft
 unit_resistance = unit_resistance * (1/1000) * (1/12) * (1/2.54) #ohms/cm
-EMF_constant = 0.1
-mass = 0.01 #kg
-friction_coefficient = 0.03 
-max_voltage = 12
+const EMF_constant = 0.1
+const mass = 0.01 #kg
+const friction_coefficient = 0.03 
+const max_voltage = 12 #volts
+const diode_resistance = 5 #ohms
+const forward_voltage = 0.51 #volts 
 
 """
 voltage(max_v, cutoff_time, curr_time, current, diode_resistance, forward_voltage)
@@ -83,6 +85,26 @@ function single_stage(du, u, p, t)
 end
 
 """
+p = [inductance, resistance, EMF_constant, mass, friction_coefficient, voltage]
+"""
+function single_stage_2(du, u, p, t)
+    #pull out the values from p
+    L_a = p[1]
+    R = p[2]
+    K_e = p[3]#assuming K_e and K_f are the same
+    m = p[4]
+    mu_k = p[5]
+    g = 9.81
+    V_a = p[6]
+
+    #this is the juicy part... the EOM (du is the derivative and u is the state vector)
+    du[1] = -(R/L_a)*u[1] + sign(u[2])*(K_e/L_a)*u[3] + (V_a/L_a)
+    du[2] = u[3]
+    du[3] = -sign(u[2])*(K_e/m)*u[1] - sign(u[3])*mu_k*g
+
+end
+
+"""
 function ob!(g, x)
 This function is used in the optimizer. 
 The vector g is a vector of constraint values and x is a vector of variables the optimizer can vary to find the optimum
@@ -94,28 +116,56 @@ As it is currently written, it restricts the cutoff time to be within 0 and 2 se
 #let's vary: cutoff_time
 function ob!(g, x)
     #set up variables
+    cutoff_time = x[1] #s
     coil_length = x[2] #cm
     wire_length = x[3] #cm
+
+    #calculate the resistance and inductance of the coil
     resistance, inductance = coil(barrel_radius, coil_length, wire_radius, wire_length, unit_resistance)
     inductance = inductance / (10^6) #convert uH to H
-    cutoff_time = x[1]
-    p = [inductance, resistance, EMF_constant, mass, friction_coefficient, max_voltage, cutoff_time] #put the variables into the vector
 
-    #println[p]
+    #initialize the parameters
+    p = [inductance, resistance, EMF_constant, mass, friction_coefficient, max_voltage] #put the variables into the vector
 
-    t = (0.0, 10.0) #time 
-    u0 = [0.0, -0.05, 0.0] #initial conditions [current, position, velocity]
+    #select the max time the simulation will calculate
+    t = (0.0, 1.0) 
+    #select the initial conditions
+    u0 = [0.0, -0.05, 0.0] #[current (amps), position(meters), velocity(m/s)]
     
     #objective (velocity when x = pos)
-    pos = 0.1
+    pos = x[4] #meters
     
     #set up end condition for simulation (end simulation when the mass reaches pos)
     condition(u,t,integrator) = u[2] - pos # Is zero when u[2] = pos
     affect!(integrator) = terminate!(integrator)
     cb = ContinuousCallback(condition, affect!)
+    #set up voltage changes
+    #voltage change when t = cutoff_time
+    tstop = [cutoff_time]
+    function condition2(u, t, integrator)
+        t in tstop
+    end
+    function affect2!(integrator)
+        integrator.p[6] = -forward_voltage
+    end
+    cb2 = DiscreteCallback(condition2, affect2!) #might need to add something to save the position
+    #voltage change when diode_resistance*current < forward_voltage
+    function condition3(u,t,integrator) 
+        if integrator.p[6] == -forward_voltage
+            return diode_resistance*u[1] - forward_voltage
+        else
+            return 1
+        end
+    end
+    function affect3!(integrator)
+        integrator.p[6] = diode_resistance * u[3]#notice that this puts the voltage at a fixed voltage
+    end
+    cb3 = ContinuousCallback(condition3, affect3!)
+    #combine the callbacks
+    cbs = CallbackSet(cb, cb2, cb3)
     #simulate
-    prob = ODEProblem(single_stage, u0, t, p) #set up the problem
-    sol = solve(prob, callback = cb); #solve the problem
+    prob = ODEProblem(single_stage_2, u0, t, p) #set up the problem
+    sol = solve(prob, callback = cbs); #solve the problem
 
     # get the velocity when the position is pos
     f = -sol[length(sol)][3] #this is negative because we are minimizing in the optimizer
@@ -135,11 +185,12 @@ To read the results, look for "xstar = _____" This is the solution the optimizer
     "fstar = _____" is the value of the objective. (The velocity of the projectile at the end of the barrel)
 """
 function optimize_coil_gun()
+    barrel_length = 0.1 #m
     smallest_coil = 0.08
     largest_coil = (2*0.06438*10) / (sqrt((1.5^2)+(0.06438^2)))
-    x0 = [0.0, 0.5, 100]  # starting point
-    lx = [0.0, smallest_coil, 5]  # lower bounds on x
-    ux = [1.0, largest_coil, 20]  # upper bounds on x
+    x0 = [0.0, 0.5, 100, barrel_length]  # starting point
+    lx = [0.0, smallest_coil, 5, barrel_length]  # lower bounds on x
+    ux = [1.0, largest_coil, 20, barrel_length]  # upper bounds on x
     ng = 1  # number of constraints
     lg = [0.0]  # lower bounds on g
     ug = [1.0]  # upper bounds on g
@@ -154,26 +205,50 @@ function optimize_coil_gun()
     return xopt
 end
 
-function plot_a_sol(cutoff_time, coil_length, wire_length)
-    #set up variables
+function plot_a_sol(cutoff_time, coil_length, wire_length, pos)
+    #calculate the resistance and inductance of the coil
     resistance, inductance = coil(barrel_radius, coil_length, wire_radius, wire_length, unit_resistance)
     inductance = inductance / (10^6) #convert uH to H
-    p = [inductance, resistance, EMF_constant, mass, friction_coefficient, max_voltage, cutoff_time] #put the variables into the vector
 
-    t = (0.0, 0.1) #time 
-    u0 = [0.0, -0.05, 0.0] #initial conditions [current, position, velocity]
+    #initialize the parameters
+    p = [inductance, resistance, EMF_constant, mass, friction_coefficient, max_voltage] #put the variables into the vector
 
-    #objective (velocity when x = pos)
-    pos = 0.1
-
+    #select the max time the simulation will calculate
+    t = (0.0, 1.0) 
+    #select the initial conditions
+    u0 = [0.0, -0.05, 0.0] #[current (amps), position(meters), velocity(m/s)]
+    
     #set up end condition for simulation (end simulation when the mass reaches pos)
-    #condition(u,t,integrator) = u[2] - pos # Is zero when u[2] = pos
-    #affect!(integrator) = terminate!(integrator)
-    #cb = ContinuousCallback(condition, affect!)
+    condition(u,t,integrator) = u[2] - pos # Is zero when u[2] = pos
+    affect!(integrator) = terminate!(integrator)
+    cb = ContinuousCallback(condition, affect!)
+    #set up voltage changes
+    #voltage change when t = cutoff_time
+    tstop = [cutoff_time]
+    function condition2(u, t, integrator)
+        t in tstop
+    end
+    function affect2!(integrator)
+        integrator.p[6] = -forward_voltage
+    end
+    cb2 = DiscreteCallback(condition2, affect2!) #might need to add something to save the position
+    #voltage change when diode_resistance*current < forward_voltage
+    function condition3(u,t,integrator) 
+        if integrator.p[6] == -forward_voltage
+            return diode_resistance*u[1] - forward_voltage
+        else
+            return 1
+        end
+    end
+    function affect3!(integrator)
+        integrator.p[6] = diode_resistance * u[3]#notice that this puts the voltage at a fixed voltage
+    end
+    cb3 = ContinuousCallback(condition3, affect3!)
+    #combine the callbacks
+    cbs = CallbackSet(cb, cb2, cb3)
     #simulate
-    prob = ODEProblem(single_stage, u0, t, p) #set up the problem
-    #sol = solve(prob, callback = cb); #solve the problem
-    sol = solve(prob)
+    prob = ODEProblem(single_stage_2, u0, t, p) #set up the problem
+    sol = solve(prob, callback = cbs); #solve the problem
     plot(sol, label = ["current" "position" "velocity"])
 end
 
@@ -212,7 +287,7 @@ function plot_end_velocities()
 end
 
 solution = optimize_coil_gun() #this line lets you run the file to get the output
-plot_a_sol(solution[1], solution[2], solution[3])
+plot_a_sol(solution[1], solution[2], solution[3], solution[4])
 
 #plot_a_sol(0.01, 1, 100)
 
