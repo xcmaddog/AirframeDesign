@@ -13,6 +13,8 @@ const friction_coefficient = 0.03
 const max_voltage = 12 #volts
 const diode_resistance = 5 #ohms
 const forward_voltage = 0.51 #volts 
+const chosen_L = 0.000005 #henrys
+const chosen_R = 0.05
 
 """
 voltage(max_v, cutoff_time, curr_time, current, diode_resistance, forward_voltage)
@@ -139,6 +141,7 @@ function ob!(g, x)
     condition(u,t,integrator) = u[2] - pos # Is zero when u[2] = pos
     affect!(integrator) = terminate!(integrator)
     cb = ContinuousCallback(condition, affect!)
+
     #set up voltage changes
     #voltage change when t = cutoff_time
     tstop = [cutoff_time]
@@ -161,8 +164,24 @@ function ob!(g, x)
         integrator.p[6] = diode_resistance * u[3]#notice that this puts the voltage at a fixed voltage
     end
     cb3 = ContinuousCallback(condition3, affect3!)
-    #combine the callbacks
-    cbs = CallbackSet(cb, cb2, cb3)
+
+    #change sign of k_e whenever x == 0
+    condition4(u,t,integrator) = u[2] # Is zero when u[2] = 0
+    function affect4!(integrator) 
+        integrator.p[3] = -1 * integrator.p[3]
+    end
+    cb4 = ContinuousCallback(condition, affect!)
+
+    #change sign of mu_k whenever xdot == 0
+    condition5(u,t,integrator) = u[3] # Is zero when u[2] = 0
+    function affect5!(integrator) 
+        integrator.p[5] = -1 * integrator.p[5]
+    end
+    cb5 = ContinuousCallback(condition, affect!)
+    
+    ##combine the callbacks
+    cbs = CallbackSet(cb, cb2, cb3, cb4, cb5)
+
     #simulate
     prob = ODEProblem(single_stage_2, u0, t, p) #set up the problem
     sol = solve(prob, callback = cbs); #solve the problem
@@ -286,9 +305,9 @@ function plot_end_velocities()
     plot!(display = true)
 end
 
-solution = optimize_coil_gun() #this line lets you run the file to get the output
-plot_a_sol(solution[1], solution[2], solution[3], solution[4])
+#solution = optimize_coil_gun() #this line lets you run the file to get the output
+#plot_a_sol(solution[1], solution[2], solution[3], solution[4])
 
-#plot_a_sol(0.01, 1, 100)
+plot_a_sol(0.90156, 0.07999, 4.9999, 0.1)
 
 #plot_end_velocities()
