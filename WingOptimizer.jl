@@ -124,7 +124,7 @@ function optimize_wing(num_of_segments; lift_requirement = 1.7, tolerance = 1e-6
     return xopt
 end
 
-function optimize_and_visualize(num_of_segments; lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8)
+function optimize_and_visualize(num_of_segments, vtk_name; lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8)
     #run the optimization
     segment_lengths = optimize_wing(num_of_segments, lift_requirement = lift_requirement, tolerance = tolerance, wing_span = wing_span)
     #draw the optimization:
@@ -132,13 +132,11 @@ function optimize_and_visualize(num_of_segments; lift_requirement = 1.7, toleran
     surface, reference_area, reference_chord = build_wing(segment_lengths, wing_span)
     #run the simulation
     _, _, properties = simulation(surface, reference_area, reference_chord)
-    write_vtk("optimizedWing", [surface], properties, symmetric = [true])
+    write_vtk(vtk_name, [surface], properties, symmetric = [true])
 end
 
 function somePlot(chord_lengths, wing_span)
-    W = get_filter_matrix(length(chord_lengths), 8/6, 8)
-    xPrime = W * chord_lengths
-    surface, reference_area, reference_chord = build_wing(xPrime, wing_span)
+    surface, reference_area, reference_chord = build_wing(x, wing_span)
     #run the simulation
     CL, CD, properties = simulation(surface, reference_area, reference_chord)
     write_vtk("initialWing", [surface], properties, symmetric = [true])
@@ -154,8 +152,9 @@ function somePlot(chord_lengths, wing_span)
     println(L)
 end
 
-optimize_and_visualize(39, lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8)
-#x0 = 0.1 * ones(Float64, 10)  # starting point
-#x0 = [1 2 3 4 5 6 7 8 9 10]'
-#x0 = [6.893416746978425e-9, 3.000000023674123, 3.000000017746777, 1.4998569274953353, 0.21886481079452977, 1.2022333013459494, 0.4399460841624301, 0.8209073037334909, 1.2238802596959992, 0.6405113570054716]
-#somePlot(x0, 8)
+optimize_and_visualize(35, "optimizedWing", lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8) #this is the "default"
+
+optimize_and_visualize(35, "looseTol", lift_requirement = 1.7, tolerance = 1e-5, wing_span = 8) #this is loosening the tolerance
+optimize_and_visualize(35, "tightTol", lift_requirement = 1.7, tolerance = 1e-7, wing_span = 8) #this is tightening the tolerance
+
+optimize_and_visualize(5, "moreLiftWing", lift_requirement = 1.7*10, tolerance = 1e-6, wing_span = 8) #this is trying to make the wing give 10x the lift
