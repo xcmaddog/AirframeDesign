@@ -129,7 +129,17 @@ function optimize_wing(num_of_segments; lift_requirement = 1.7, tolerance = 1e-6
     return xopt
 end
 
-function plotLiftDistribution(system, grid, num_span_segments, plot_name; num_chord_segments = 9, span = 8)
+"""
+plotLiftDistribution(system, grid, num_span_segments, plot_name; num_chord_segments = 9, span = 8)
+This function plots the lift distribution of a wing next to an elliptical lift distribution 
+    with the same maximum coefficient of lift.
+
+system is a System object for the wing in question
+num_span_segments is an Integer for the number of chord lengths (not actually the number of span-wise segments)
+plot_name is a String for the name of the file the plot will be saved as
+span is a Float for the span of the wing
+"""
+function plotLiftDistribution(system, grid, num_span_segments, plot_name; span = 8)
     r, c = lifting_line_geometry([grid])
     cf, cm = lifting_line_coefficients(system, r, c)
     lift_coefficients = cf[1][3,:]
@@ -146,6 +156,16 @@ function plotLiftDistribution(system, grid, num_span_segments, plot_name; num_ch
     savefig(p, plot_name)
 end
 
+"""
+optimize_and_visualize(num_of_segments, vtk_name; lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8)
+This function optimizes a wing, makes a vtk of it, and plots its lift distribution compared to an elliptical lift distribution.
+
+num_of_segments is an integer for the number of design variables (notice that the number of spanwise segments is one fewer)
+vtk_name is a string that will be used for the file name of the vtk
+lift_requirement is a Float in units of Newtons which is the lifting requirment for the wing which will be made
+tolerance is a Float which specifies the tolerance for the optimizer
+wing_span is a Float in units of meters for the span of the wing
+"""
 function optimize_and_visualize(num_of_segments, vtk_name; lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8)
     #run the optimization
     segment_lengths = optimize_wing(num_of_segments, lift_requirement = lift_requirement, tolerance = tolerance, wing_span = wing_span)
@@ -161,8 +181,13 @@ function optimize_and_visualize(num_of_segments, vtk_name; lift_requirement = 1.
     #plotLiftDistribution(system, grid, num_of_segments, "distribution", span = wing_span)
 end
 
+"""
+somePlot(chord_lengths, wing_span)
+This function is a function that takes the chord lengths of a wing and prints out the coefficients of drag and lift
+    as well as the dimensional lift and drag. It also make a vtk of the wing so that it can be viewed in ParaView.
+"""
 function somePlot(chord_lengths, wing_span)
-    surface, reference_area, reference_chord, _ = build_wing(x, wing_span)
+    surface, reference_area, reference_chord, _ = build_wing(chord_lengths, wing_span)
     #run the simulation
     CL, CD, properties, _ = simulation(surface, reference_area, reference_chord)
     write_vtk("initialWing", [surface], properties, symmetric = [true])
@@ -178,10 +203,14 @@ function somePlot(chord_lengths, wing_span)
     println(L)
 end
 
-#optimize_and_visualize(35, "optimizedWing", lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8) #this is the "default"
+#Here are the function calls I ran to get the data used in my report. You can run them all at once if you want, but you'll have to 
+#watch the terminal output to get the drag and number of iterations for each call because they don't save unlike the vtk's and the
+#plots. Also, some of them take a while to run because they never converge.
 
-#optimize_and_visualize(35, "looseTol", lift_requirement = 1.7, tolerance = 1e-5, wing_span = 8) #this is loosening the tolerance
-#optimize_and_visualize(35, "veryLooseTol", lift_requirement = 1.7, tolerance = 1e-1, wing_span = 8) #this is loosening the tolerance a lot
-#optimize_and_visualize(35, "tightTol", lift_requirement = 1.7, tolerance = 1e-7, wing_span = 8) #this is tightening the tolerance
+optimize_and_visualize(35, "optimizedWing", lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8) #this is the "default"
+
+optimize_and_visualize(35, "looseTol", lift_requirement = 1.7, tolerance = 1e-5, wing_span = 8) #this is loosening the tolerance
+optimize_and_visualize(35, "veryLooseTol", lift_requirement = 1.7, tolerance = 1e-1, wing_span = 8) #this is loosening the tolerance a lot
+optimize_and_visualize(35, "tightTol", lift_requirement = 1.7, tolerance = 1e-7, wing_span = 8) #this is tightening the tolerance
 
 optimize_and_visualize(5, "moreLiftWing", lift_requirement = 1.7*10, tolerance = 1e-6, wing_span = 8) #this is trying to make the wing give 10x the lift
