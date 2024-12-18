@@ -133,17 +133,17 @@ function plotLiftDistribution(system, grid, num_span_segments, plot_name; num_ch
     r, c = lifting_line_geometry([grid])
     cf, cm = lifting_line_coefficients(system, r, c)
     lift_coefficients = cf[1][3,:]
-    span_locations = range(start = span/2, stop = span, length = num_span_segments)
+    span_locations = range(start = span/2, stop = span, length = num_span_segments-1)
     p = plot(span_locations, lift_coefficients,
         ylabel = "Lift Coefficient",
         xlabel = "Spanwise Location",
         label = "Wing Lift Distribution")
     max_lift_coefficient = maximum(lift_coefficients)
     #y = (b/a)*sqrt(a^2 - x^2)
-    elliptical_lift_coefficients = (max_lift_coefficient/(span/2)) .* sqrt.((span/2)^2 .- span_locations)
+    elliptical_lift_coefficients = (max_lift_coefficient/(span/2)) .* sqrt.((span/2)^2 .- (span_locations .- (span/2)) .^ 2)
     plot!(p, span_locations, elliptical_lift_coefficients,
         label = "Elliptical Lift Distribution")
-    savefig(p, plot_name * ".jpg")
+    savefig(p, plot_name)
 end
 
 function optimize_and_visualize(num_of_segments, vtk_name; lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8)
@@ -157,8 +157,8 @@ function optimize_and_visualize(num_of_segments, vtk_name; lift_requirement = 1.
     #make the vtk
     write_vtk(vtk_name, [surface], properties, symmetric = [true])
     #make a plot that compares its lift distribution to an elliptical lift distribution
-    #plotLiftDistribution(system, grid, num_of_segments, vtk_name * "_lift_distribution", span = wing_span)
-    plotLiftDistribution(system, grid, num_of_segments, "distribution", span = wing_span)
+    plotLiftDistribution(system, grid, num_of_segments, vtk_name * "_lift_distribution", span = wing_span)
+    #plotLiftDistribution(system, grid, num_of_segments, "distribution", span = wing_span)
 end
 
 function somePlot(chord_lengths, wing_span)
@@ -178,9 +178,10 @@ function somePlot(chord_lengths, wing_span)
     println(L)
 end
 
-optimize_and_visualize(10, "optimizedWing", lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8) #this is the "default"
+#optimize_and_visualize(35, "optimizedWing", lift_requirement = 1.7, tolerance = 1e-6, wing_span = 8) #this is the "default"
 
 #optimize_and_visualize(35, "looseTol", lift_requirement = 1.7, tolerance = 1e-5, wing_span = 8) #this is loosening the tolerance
+#optimize_and_visualize(35, "veryLooseTol", lift_requirement = 1.7, tolerance = 1e-1, wing_span = 8) #this is loosening the tolerance a lot
 #optimize_and_visualize(35, "tightTol", lift_requirement = 1.7, tolerance = 1e-7, wing_span = 8) #this is tightening the tolerance
 
-#optimize_and_visualize(5, "moreLiftWing", lift_requirement = 1.7*10, tolerance = 1e-6, wing_span = 8) #this is trying to make the wing give 10x the lift
+optimize_and_visualize(5, "moreLiftWing", lift_requirement = 1.7*10, tolerance = 1e-6, wing_span = 8) #this is trying to make the wing give 10x the lift
